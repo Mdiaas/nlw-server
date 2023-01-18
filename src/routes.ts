@@ -67,4 +67,75 @@ export async function appRoutes(app : FastifyInstance){
     }
   })
 
+  app.patch('/habits/:id/toggle', async (request) => {
+    const toggleHabitParams = z.object({
+      id: z.string().uuid()
+    })
+
+    const { id } = toggleHabitParams.parse(request.params)
+    
+    const today = dayjs().startOf('day').toDate()
+
+    let day = await prisma.day.findUnique({
+      where:{
+        date: today
+      }
+    })
+
+    if(!day){
+      day = await prisma.day.create({
+        data:{
+          date: today
+        }
+      })
+    }
+    const dayHabit = await prisma.dayHabit.findUnique({
+      where:{
+        day_id_habit_id:{
+          day_id: day.id,
+          habit_id: id
+        }
+      }
+    })
+
+    if(dayHabit){
+      await prisma.dayHabit.delete({
+        where:{
+          id: dayHabit.id
+        }
+      })
+    }else{
+      await prisma.dayHabit.create({
+        data:{
+          day_id: day.id,
+          habit_id: id
+        }
+      })
+    }
+    //complete the habit in that day
+    
+  })
+
+  app.get('/summary', async()=> {
+    const summary = await prisma.$queryRaw`
+      select 
+        D.id, D.date,
+        (
+          select cast(count(*) as float) from day_habits DH where DH.day_id = D.id
+        ) as completed,
+        (
+          select 
+            cast(count(*) as float) 
+          from habit_week_days HWD 
+          join habits H on H.id = HWD.habit_id
+          where HWD.week_day = cast(strftime('%W', D.date/1000.0, 'unixepoch') as int)
+          and H.created_at <= D.date 
+        ) as amount
+      from 
+        days as D
+    `
+      return {
+        summary
+      }  
+  })
 }
